@@ -5,6 +5,8 @@ import time
 import asyncio
 import discord
 from bs4 import BeautifulSoup
+import os
+
 
 # Reddit API Configuration
 reddit = praw.Reddit(
@@ -15,7 +17,7 @@ reddit = praw.Reddit(
 
 # Discord Bot Configuration
 DISCORD_TOKEN = "YOUR_DISCORD_BOT_TOKEN"
-CHANNEL_ID = YOUR_CHANNEL_ID  # Replace with your Discord channel ID
+CHANNEL_ID = int(os.getenv("DISCORD_CHANNEL_ID"))
 
 # Function to check ML Contests
 def check_ml_contests():
