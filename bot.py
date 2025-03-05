@@ -1,12 +1,12 @@
-import requests
+import os
+import json
 import praw
+import requests
 import schedule
 import time
 import asyncio
 import discord
 from bs4 import BeautifulSoup
-import os
-
 
 # Load Reddit API credentials from environment variables
 reddit = praw.Reddit(
@@ -16,7 +16,7 @@ reddit = praw.Reddit(
 )
 
 # Discord Bot Configuration
-DISCORD_TOKEN = "YOUR_DISCORD_BOT_TOKEN"
+DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 CHANNEL_ID = int(os.getenv("DISCORD_CHANNEL_ID"))
 
 # Function to check ML Contests
@@ -35,12 +35,28 @@ def check_ml_contests():
 
 # Function to check Reddit for AI Competitions
 def check_reddit():
-    subreddits = ["AICompetitions", "AIArt", "ArtificialIntelligence"]
+    subreddits = ["AICompetitions", "AIArt", "ArtificialInteligence", "aivideo", "ChatGPT", "aipromptprogramming", "SunoAI", "singularity", "StableDiffusion", "weirddalle", "MidJourney", "Artificial", "OpenAI", "runwayml"]
     new_posts = []
     
+    keywords = ["contest", "competition", "challenge", "prize", "submission", "AI contest", "AI challenge", "hackathon", "art battle", "film contest"]
+    
+    past_alerts_file = "past_alerts.json"
+    
+    try:
+        with open(past_alerts_file, "r") as file:
+            past_alerts = json.load(file)
+    except FileNotFoundError:
+        past_alerts = []
+    
     for sub in subreddits:
-        for submission in reddit.subreddit(sub).new(limit=5):  # Get 5 latest posts per subreddit
-            new_posts.append((submission.title, submission.url))
+        for submission in reddit.subreddit(sub).new(limit=10):  # Fetch more posts for filtering
+            if any(keyword in submission.title.lower() for keyword in keywords) and submission.id not in past_alerts:
+                new_posts.append((submission.title, submission.url))
+                past_alerts.append(submission.id)
+    
+    # Save updated alert history
+    with open(past_alerts_file, "w") as file:
+        json.dump(past_alerts, file)
     
     return new_posts
 
