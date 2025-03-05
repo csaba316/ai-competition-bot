@@ -8,11 +8,11 @@ from bs4 import BeautifulSoup
 import os
 
 
-# Reddit API Configuration
+# Load Reddit API credentials from environment variables
 reddit = praw.Reddit(
-    client_id="YOUR_CLIENT_ID",
-    client_secret="YOUR_CLIENT_SECRET",
-    user_agent="AI_Competition_Bot"
+    client_id=os.getenv("REDDIT_CLIENT_ID"),
+    client_secret=os.getenv("REDDIT_CLIENT_SECRET"),
+    user_agent=os.getenv("REDDIT_USER_AGENT")
 )
 
 # Discord Bot Configuration
@@ -39,7 +39,7 @@ def check_reddit():
     new_posts = []
     
     for sub in subreddits:
-        for submission in reddit.subreddit(sub).new(limit=5):
+        for submission in reddit.subreddit(sub).new(limit=5):  # Get 5 latest posts per subreddit
             new_posts.append((submission.title, submission.url))
     
     return new_posts
