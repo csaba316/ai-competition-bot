@@ -14,4 +14,3 @@ wheel
 cython
 numpy
 spacy==3.5.4 --prefer-binary
-en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.5.0/en_core_web_sm-3.5.0.tar.gz
