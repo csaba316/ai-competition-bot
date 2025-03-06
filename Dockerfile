@@ -1,32 +1,29 @@
-FROM python:3.12-slim
+FROM python:3.9-slim
 
 WORKDIR /app
 
-# Install system dependencies required for building Python packages
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
     python3-dev \
     gcc \
-    g++ \
-    git \
-    cmake \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements file
 COPY requirements.txt .
 
-# Install packages that spaCy depends on first
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel cython numpy
+# Install pip tools first
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
-# Install spaCy separately with specific options
-RUN pip install --no-cache-dir spacy==3.6.1 --no-build-isolation
-
-# Install the rest of the requirements
-RUN pip install --no-cache-dir -r requirements.txt
+# Install spaCy with specific version that has good wheel support for Python 3.9
+RUN pip install --no-cache-dir --prefer-binary spacy==3.6.1
 
 # Download spaCy model
 RUN python -m spacy download en_core_web_sm
+
+# Install other requirements
+RUN pip install --no-cache-dir --prefer-binary -r requirements.txt
 
 # Copy application code
 COPY . .
