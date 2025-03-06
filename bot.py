@@ -16,7 +16,6 @@ reddit = praw.Reddit(
     user_agent=os.getenv("REDDIT_USER_AGENT")
 )
 
-# Load NLP model
 try:
     nlp = spacy.load("en_core_web_sm")
 except OSError:
