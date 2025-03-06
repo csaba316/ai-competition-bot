@@ -19,7 +19,14 @@ reddit = praw.Reddit(
 )
 
 # Load NLP model
-nlp = spacy.load("en_core_web_sm")
+import spacy
+try:
+    nlp = spacy.load("en_core_web_sm")
+except OSError:
+    print("Downloading 'en_core_web_sm' model...")
+    from spacy.cli import download
+    download("en_core_web_sm")
+    nlp = spacy.load("en_core_web_sm")
 
 # Discord Bot Configuration
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
