@@ -1,0 +1,6 @@
+[phases.setup]
+nixPkgs = ["gcc", "gfortran", "g++", "python311Packages.cython", "python311Packages.numpy", "python311Packages.setuptools", "python311Packages.pip"]
+cmds = [
+    "pip install --upgrade pip setuptools wheel",
+    "pip install --prefer-binary -r requirements.txt"
+]
