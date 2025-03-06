@@ -4,3 +4,4 @@ praw
 schedule
 discord.py
 feedparser
+spacy
