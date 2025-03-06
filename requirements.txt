@@ -13,4 +13,4 @@ setuptools
 wheel
 cython
 numpy
-spacy==3.5.4 --prefer-binary
+spacy==3.6.1
