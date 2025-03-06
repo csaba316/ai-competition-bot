@@ -7,5 +7,6 @@ feedparser
 cython
 setuptools
 wheel
-numpy
+numpy==1.23.5  # Explicitly set a compatible NumPy version
 pip
+spacy==3.5.4 --prefer-binary  # Ensure SpaCy uses prebuilt wheels
