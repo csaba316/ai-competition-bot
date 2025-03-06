@@ -3,3 +3,4 @@ beautifulsoup4
 praw
 schedule
 discord.py
+feedparser
