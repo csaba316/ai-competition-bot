@@ -13,11 +13,14 @@ RUN apt-get update && apt-get install -y \
 # Copy requirements file
 COPY requirements.txt .
 
-# Install pip tools first
+# Upgrade pip, setuptools, and wheel
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
-# Install spaCy with specific version that has good wheel support for Python 3.9
-RUN pip install --no-cache-dir --prefer-binary spacy==3.6.1
+# Install NumPy first (to avoid binary incompatibility with SpaCy)
+RUN pip install --no-cache-dir --prefer-binary numpy==1.23.5
+
+# Install spaCy with a version that has stable wheels for Python 3.9
+RUN pip install --no-cache-dir --prefer-binary spacy==3.5.4
 
 # Download spaCy model
 RUN python -m spacy download en_core_web_sm
