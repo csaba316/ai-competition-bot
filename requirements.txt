@@ -9,8 +9,5 @@ setuptools
 wheel
 numpy
 pip
-setuptools
-wheel
-cython
-numpy
+--prefer-binary
 spacy==3.6.1
