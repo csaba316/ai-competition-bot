@@ -6,6 +6,9 @@ import schedule
 import time
 import asyncio
 import discord
+import hashlib
+import feedparser
+import spacy
 from bs4 import BeautifulSoup
 
 # Load Reddit API credentials from environment variables
@@ -14,6 +17,9 @@ reddit = praw.Reddit(
     client_secret=os.getenv("REDDIT_CLIENT_SECRET"),
     user_agent=os.getenv("REDDIT_USER_AGENT")
 )
+
+# Load NLP model
+nlp = spacy.load("en_core_web_sm")
 
 # Discord Bot Configuration
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
@@ -33,13 +39,16 @@ def check_ml_contests():
     
     return contests
 
-# Function to check Reddit for AI Competitions
+# Function to hash posts to avoid duplicates
+def hash_post(title, body):
+    post_text = title + body
+    return hashlib.sha256(post_text.encode()).hexdigest()
+
+# Enhanced function to check Reddit for AI Competitions
 def check_reddit():
     subreddits = ["AICompetitions", "AIArt", "ArtificialInteligence", "aivideo", "ChatGPT", "aipromptprogramming", "SunoAI", "singularity", "StableDiffusion", "weirddalle", "MidJourney", "Artificial", "OpenAI", "runwayml"]
-    new_posts = []
-    
     keywords = ["contest", "competition", "challenge", "prize", "submission", "AI contest", "AI challenge", "hackathon", "art battle", "film contest"]
-    
+    new_posts = []
     past_alerts_file = "past_alerts.json"
     
     try:
@@ -49,10 +58,20 @@ def check_reddit():
         past_alerts = []
     
     for sub in subreddits:
-        for submission in reddit.subreddit(sub).new(limit=10):  # Fetch more posts for filtering
-            if any(keyword in submission.title.lower() for keyword in keywords) and submission.id not in past_alerts:
-                new_posts.append((submission.title, submission.url))
-                past_alerts.append(submission.id)
+        for submission in reddit.subreddit(sub).hot(limit=15):  # Fetch based on hot ranking
+            post_hash = hash_post(submission.title, submission.selftext)
+            if submission.score > 50 and post_hash not in past_alerts:  # Prioritize high-engagement posts
+                doc = nlp(submission.title.lower() + " " + submission.selftext.lower())
+                if any(word in doc.text for word in keywords):
+                    post_data = {
+                        "title": submission.title,
+                        "url": submission.url,
+                        "subreddit": sub,
+                        "score": submission.score,
+                        "comments": submission.num_comments
+                    }
+                    new_posts.append(post_data)
+                    past_alerts.append(post_hash)
     
     # Save updated alert history
     with open(past_alerts_file, "w") as file:
@@ -60,13 +79,30 @@ def check_reddit():
     
     return new_posts
 
+# Function to check AI competition RSS feeds
+def check_rss_feed():
+    feed_url = "https://www.aicrowd.com/challenges.rss"
+    feed = feedparser.parse(feed_url)
+    
+    competitions = []
+    for entry in feed.entries:
+        competitions.append((entry.title, entry.link))
+    
+    return competitions
+
 # Discord Bot Class
 class MyClient(discord.Client):
     async def on_ready(self):
         channel = self.get_channel(CHANNEL_ID)
-        contests = check_ml_contests() + check_reddit()
+        contests = check_ml_contests() + check_reddit() + check_rss_feed()
         if contests:
-            message = "**New AI Competitions Found!**\n\n" + "\n".join([f"[{title}]({link})" for title, link in contests])
+            message = "**New AI Competitions Found!**\n\n"
+            for contest in contests:
+                if isinstance(contest, tuple):  # ML Contests and RSS format
+                    message += f"[{contest[0]}]({contest[1]})\n"
+                else:  # Reddit post format
+                    message += f"[{contest['title']}]({contest['url']}) (r/{contest['subreddit']})\n"
+            
             await channel.send(message)
         await self.close()
 
@@ -74,7 +110,7 @@ client = MyClient(intents=discord.Intents.default())
 
 # Function to run bot and send alerts
 def job():
-    contests = check_ml_contests() + check_reddit()
+    contests = check_ml_contests() + check_reddit() + check_rss_feed()
     if contests:
         asyncio.run(client.start(DISCORD_TOKEN))
 
