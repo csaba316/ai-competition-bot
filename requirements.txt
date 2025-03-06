@@ -9,5 +9,3 @@ setuptools
 wheel
 numpy
 pip
---prefer-binary
-spacy==3.6.1
