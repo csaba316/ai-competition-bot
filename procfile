@@ -1,1 +1,1 @@
-worker: python bot.py
+worker: bash -c "pip install --upgrade pip setuptools wheel && pip install -r requirements.txt && python bot.py"
