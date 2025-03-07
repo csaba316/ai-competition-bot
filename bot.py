@@ -50,7 +50,7 @@ def hash_post(title, body):
 # Function to check Reddit for AI Competitions
 def check_reddit():
     subreddits = ["AICompetitions", "AIArt", "ArtificialInteligence", "aivideo", "ChatGPT", "aipromptprogramming", "SunoAI", "singularity", "StableDiffusion", "weirddalle", "MidJourney", "Artificial", "OpenAI", "runwayml"]
-    keywords = ["contest", "competition", "challenge", "prize", "submission", "AI contest", "AI challenge", "hackathon", "art battle", "film contest"]
+    keywords = ["contest", "competition", "challenge", "prize", "submission", "AI contest", "AI challenge", "hackathon", "art battle", "film contest", "annual", "festival"]
     
     new_posts = []
     past_alerts_file = "past_alerts.json"
