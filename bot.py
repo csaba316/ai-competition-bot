@@ -1,39 +1,47 @@
 import os
-import json
-import praw
+import aiohttp
 import asyncpraw
-import requests
 import asyncio
 import discord
+import json
 import hashlib
 import feedparser
 import spacy
 from bs4 import BeautifulSoup
 
-# Load Reddit API credentials from environment variables
-reddit = asyncpraw.Reddit(
-    client_id="your_client_id",
-    client_secret="your_client_secret",
-    user_agent="your_user_agent",
-)
-
-try:
-    nlp = spacy.load("en_core_web_sm")
-except OSError:
-    print("Downloading 'en_core_web_sm' model...")
-    from spacy.cli import download
-    download("en_core_web_sm")
-    nlp = spacy.load("en_core_web_sm")
-
 # Discord Bot Configuration
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 CHANNEL_ID = int(os.getenv("DISCORD_CHANNEL_ID"))
 
-# Function to check ML Contests
-def check_ml_contests():
+# Global Reddit variable (initialized later)
+reddit = None
+
+# Initialize NLP
+try:
+    nlp = spacy.load("en_core_web_sm")
+except OSError:
+    from spacy.cli import download
+    download("en_core_web_sm")
+    nlp = spacy.load("en_core_web_sm")
+
+
+# ✅ Fix: Ensure `reddit` is initialized properly in an async function
+async def initialize_reddit():
+    global reddit
+    reddit = asyncpraw.Reddit(
+        client_id=os.getenv("REDDIT_CLIENT_ID"),
+        client_secret=os.getenv("REDDIT_CLIENT_SECRET"),
+        user_agent=os.getenv("REDDIT_USER_AGENT"),
+    )
+
+# ✅ Fix: Ensure API requests are async
+async def check_ml_contests():
     url = "https://mlcontests.com/"
-    response = requests.get(url)
-    soup = BeautifulSoup(response.text, 'html.parser')
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as response:
+            html = await response.text()
+
+    soup = BeautifulSoup(html, 'html.parser')
     
     contests = []
     for contest in soup.find_all("div", class_="contest-item"):
@@ -43,19 +51,18 @@ def check_ml_contests():
     
     return contests
 
-# Function to hash posts to avoid duplicates
-def hash_post(title, body):
-    post_text = title + body
-    return hashlib.sha256(post_text.encode()).hexdigest()
 
-# Function to check Reddit for AI Competitions
+# ✅ Fix: Ensure `asyncpraw` is used properly
 async def check_reddit():
+    if reddit is None:
+        await initialize_reddit()
+        
     subreddits = ["AICompetitions", "AIArt", "ArtificialInteligence", "aivideo", "ChatGPT", "aipromptprogramming", "SunoAI", "singularity", "StableDiffusion", "weirddalle", "MidJourney", "Artificial", "OpenAI", "runwayml"]
     keywords = ["contest", "competition", "challenge", "prize", "submission", "AI contest", "AI challenge", "hackathon", "art battle", "film contest", "annual", "festival"]
     
     new_posts = []
     past_alerts_file = "past_alerts.json"
-    
+
     try:
         with open(past_alerts_file, "r") as file:
             past_alerts = json.load(file)
@@ -64,8 +71,8 @@ async def check_reddit():
 
     for sub in subreddits:
         subreddit = await reddit.subreddit(sub)
-        async for submission in subreddit.hot(limit=15):  # ✅ Use async iteration
-            post_hash = hash_post(submission.title, submission.selftext)
+        async for submission in subreddit.hot(limit=10):
+            post_hash = hashlib.sha256((submission.title + submission.selftext).encode()).hexdigest()
             if submission.score > 50 and post_hash not in past_alerts:
                 doc = nlp(submission.title.lower() + " " + submission.selftext.lower())
                 if any(word in doc.text for word in keywords):
@@ -84,10 +91,15 @@ async def check_reddit():
 
     return new_posts
 
-# Function to check AI competition RSS feeds
-def check_rss_feed():
+
+# ✅ Fix: Ensure RSS fetch is async
+async def check_rss_feed():
     feed_url = "https://www.aicrowd.com/challenges.rss"
-    feed = feedparser.parse(feed_url)
+    async with aiohttp.ClientSession() as session:
+        async with session.get(feed_url) as response:
+            xml = await response.text()
+    
+    feed = feedparser.parse(xml)
     
     competitions = []
     for entry in feed.entries:
@@ -95,36 +107,43 @@ def check_rss_feed():
     
     return competitions
 
+
 # Discord Bot Class
 class MyClient(discord.Client):
     async def on_ready(self):
         print(f'Logged in as {self.user}')
+        await initialize_reddit()  # ✅ Initialize Reddit once when bot starts
         self.bg_task = self.loop.create_task(self.check_and_send_updates())
 
     async def check_and_send_updates(self):
         await self.wait_until_ready()
         channel = self.get_channel(CHANNEL_ID)
 
-        # Send a test message
-        if channel:
-            await channel.send("🚀 Bot is online! This is a test message.")
-
-        # Start background task
-        self.bg_task = self.loop.create_task(self.check_and_send_updates())
-        
         while not self.is_closed():
-            contests = check_ml_contests() + await check_reddit() + check_rss_feed()
-            if contests:
-                message = "**New AI Competitions Found!**\n\n"
-                for contest in contests:
-                    if isinstance(contest, tuple):  
-                        message += f"[{contest[0]}]({contest[1]})\n"
-                    else:  
-                        message += f"[{contest['title']}]({contest['url']}) (r/{contest['subreddit']})\n"
-                
-                await channel.send(message)
-            await asyncio.sleep(3600)  # Wait 1 hour before next check
+            try:
+                contests = await check_ml_contests()
+                reddit_posts = await check_reddit()
+                rss_competitions = await check_rss_feed()
 
+                all_contests = contests + reddit_posts + rss_competitions
+
+                if all_contests:
+                    message = "**New AI Competitions Found!**\n\n"
+                    for contest in all_contests:
+                        if isinstance(contest, tuple):  
+                            message += f"[{contest[0]}]({contest[1]})\n"
+                        else:  
+                            message += f"[{contest['title']}]({contest['url']}) (r/{contest['subreddit']})\n"
+
+                    await channel.send(message)
+
+            except Exception as e:
+                print(f"Error checking competitions: {e}")
+
+            await asyncio.sleep(3600)  # ✅ Wait 1 hour before next check
+
+
+# ✅ Use intents for Discord bot
 intents = discord.Intents.default()
 client = MyClient(intents=intents)
 
