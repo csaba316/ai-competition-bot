@@ -104,6 +104,13 @@ class MyClient(discord.Client):
     async def check_and_send_updates(self):
         await self.wait_until_ready()
         channel = self.get_channel(CHANNEL_ID)
+
+        # Send a test message
+        if channel:
+            await channel.send("🚀 Bot is online! This is a test message.")
+
+        # Start background task
+        self.bg_task = self.loop.create_task(self.check_and_send_updates())
         
         while not self.is_closed():
             contests = check_ml_contests() + await check_reddit() + check_rss_feed()
