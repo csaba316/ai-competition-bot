@@ -1,6 +1,7 @@
 import os
 import json
 import praw
+import asyncpraw
 import requests
 import asyncio
 import discord
@@ -10,10 +11,10 @@ import spacy
 from bs4 import BeautifulSoup
 
 # Load Reddit API credentials from environment variables
-reddit = praw.Reddit(
-    client_id=os.getenv("REDDIT_CLIENT_ID"),
-    client_secret=os.getenv("REDDIT_CLIENT_SECRET"),
-    user_agent=os.getenv("REDDIT_USER_AGENT")
+reddit = asyncpraw.Reddit(
+    client_id="your_client_id",
+    client_secret="your_client_secret",
+    user_agent="your_user_agent",
 )
 
 try:
@@ -48,7 +49,7 @@ def hash_post(title, body):
     return hashlib.sha256(post_text.encode()).hexdigest()
 
 # Function to check Reddit for AI Competitions
-def check_reddit():
+async def check_reddit():
     subreddits = ["AICompetitions", "AIArt", "ArtificialInteligence", "aivideo", "ChatGPT", "aipromptprogramming", "SunoAI", "singularity", "StableDiffusion", "weirddalle", "MidJourney", "Artificial", "OpenAI", "runwayml"]
     keywords = ["contest", "competition", "challenge", "prize", "submission", "AI contest", "AI challenge", "hackathon", "art battle", "film contest", "annual", "festival"]
     
@@ -60,9 +61,10 @@ def check_reddit():
             past_alerts = json.load(file)
     except FileNotFoundError:
         past_alerts = []
-    
+
     for sub in subreddits:
-        for submission in reddit.subreddit(sub).hot(limit=15):
+        subreddit = await reddit.subreddit(sub)
+        async for submission in subreddit.hot(limit=15):  # ✅ Use async iteration
             post_hash = hash_post(submission.title, submission.selftext)
             if submission.score > 50 and post_hash not in past_alerts:
                 doc = nlp(submission.title.lower() + " " + submission.selftext.lower())
@@ -76,10 +78,10 @@ def check_reddit():
                     }
                     new_posts.append(post_data)
                     past_alerts.append(post_hash)
-    
+
     with open(past_alerts_file, "w") as file:
         json.dump(past_alerts, file)
-    
+
     return new_posts
 
 # Function to check AI competition RSS feeds
@@ -104,7 +106,7 @@ class MyClient(discord.Client):
         channel = self.get_channel(CHANNEL_ID)
         
         while not self.is_closed():
-            contests = check_ml_contests() + check_reddit() + check_rss_feed()
+            contests = check_ml_contests() + await check_reddit() + check_rss_feed()
             if contests:
                 message = "**New AI Competitions Found!**\n\n"
                 for contest in contests:
