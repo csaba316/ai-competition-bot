@@ -7,6 +7,7 @@ import json
 import hashlib
 import feedparser
 import spacy
+from datetime import datetime
 from bs4 import BeautifulSoup
 
 # Discord Bot Configuration
@@ -25,7 +26,7 @@ except OSError:
     nlp = spacy.load("en_core_web_sm")
 
 
-# ✅ Fix: Ensure `reddit` is initialized properly in an async function
+# ✅ Initialize Reddit properly inside an async function
 async def initialize_reddit():
     global reddit
     reddit = asyncpraw.Reddit(
@@ -34,7 +35,15 @@ async def initialize_reddit():
         user_agent=os.getenv("REDDIT_USER_AGENT"),
     )
 
-# ✅ Fix: Ensure API requests are async
+
+# ✅ Function to send a test message when the bot starts
+async def send_startup_message(channel):
+    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    message = f"✅ Bot started successfully!\n📅 Timestamp: `{now}`"
+    await channel.send(message)
+
+
+# ✅ Check AI competitions from MLContests
 async def check_ml_contests():
     url = "https://mlcontests.com/"
     async with aiohttp.ClientSession() as session:
@@ -52,7 +61,7 @@ async def check_ml_contests():
     return contests
 
 
-# ✅ Fix: Ensure `asyncpraw` is used properly
+# ✅ Check Reddit for AI Competitions
 async def check_reddit():
     if reddit is None:
         await initialize_reddit()
@@ -92,7 +101,7 @@ async def check_reddit():
     return new_posts
 
 
-# ✅ Fix: Ensure RSS fetch is async
+# ✅ Check AI Competition RSS Feeds
 async def check_rss_feed():
     feed_url = "https://www.aicrowd.com/challenges.rss"
     async with aiohttp.ClientSession() as session:
@@ -108,11 +117,18 @@ async def check_rss_feed():
     return competitions
 
 
-# Discord Bot Class
+# ✅ Discord Bot Class
 class MyClient(discord.Client):
     async def on_ready(self):
         print(f'Logged in as {self.user}')
         await initialize_reddit()  # ✅ Initialize Reddit once when bot starts
+
+        # ✅ Send the test message with timestamp
+        channel = self.get_channel(CHANNEL_ID)
+        if channel:
+            await send_startup_message(channel)
+
+        # ✅ Start checking AI competitions
         self.bg_task = self.loop.create_task(self.check_and_send_updates())
 
     async def check_and_send_updates(self):
