@@ -5,10 +5,14 @@ import asyncio
 import discord
 import json
 import hashlib
-import feedparser
 import spacy
 from datetime import datetime
 from bs4 import BeautifulSoup
+
+# Twitter API Configuration
+BEARER_TOKEN = os.getenv("TWITTER_BEARER_TOKEN")
+TWITTER_ACCOUNTS = ["AIcrowd", "Kaggle", "DrivenDataOrg", "MLcontests"]
+TWITTER_KEYWORDS = ["AI competition", "machine learning challenge", "hackathon", "prize", "submission", "AI contest"]
 
 # Discord Bot Configuration
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
@@ -25,7 +29,6 @@ except OSError:
     download("en_core_web_sm")
     nlp = spacy.load("en_core_web_sm")
 
-
 # ✅ Initialize Reddit properly inside an async function
 async def initialize_reddit():
     global reddit
@@ -35,13 +38,27 @@ async def initialize_reddit():
         user_agent=os.getenv("REDDIT_USER_AGENT"),
     )
 
-
 # ✅ Function to send a test message when the bot starts
 async def send_startup_message(channel):
     now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
     message = f"✅ Bot started successfully!\n📅 Timestamp: `{now}`"
     await channel.send(message)
 
+# ✅ Fetch Twitter AI Competitions
+async def check_twitter():
+    headers = {"Authorization": f"Bearer {BEARER_TOKEN}"}
+    tweets = []
+    
+    async with aiohttp.ClientSession(headers=headers) as session:
+        for account in TWITTER_ACCOUNTS:
+            url = f"https://api.twitter.com/2/tweets/search/recent?query=from:{account}&tweet.fields=text,created_at,public_metrics&max_results=10"
+            async with session.get(url) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    for tweet in data.get("data", []):
+                        if any(keyword.lower() in tweet["text"].lower() for keyword in TWITTER_KEYWORDS):
+                            tweets.append((tweet["text"], f"https://twitter.com/{account}/status/{tweet['id']}"))
+    return tweets
 
 # ✅ Check AI competitions from MLContests
 async def check_ml_contests():
@@ -49,9 +66,8 @@ async def check_ml_contests():
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as response:
             html = await response.text()
-
-    soup = BeautifulSoup(html, 'html.parser')
     
+    soup = BeautifulSoup(html, 'html.parser')
     contests = []
     for contest in soup.find_all("div", class_="contest-item"):
         title = contest.find("h2").text
@@ -59,7 +75,6 @@ async def check_ml_contests():
         contests.append((title, link))
     
     return contests
-
 
 # ✅ Check Reddit for AI Competitions
 async def check_reddit():
@@ -71,7 +86,6 @@ async def check_reddit():
     
     new_posts = []
     past_alerts_file = "past_alerts.json"
-
     try:
         with open(past_alerts_file, "r") as file:
             past_alerts = json.load(file)
@@ -94,41 +108,22 @@ async def check_reddit():
                     }
                     new_posts.append(post_data)
                     past_alerts.append(post_hash)
-
+    
     with open(past_alerts_file, "w") as file:
         json.dump(past_alerts, file)
-
+    
     return new_posts
-
-
-# ✅ Check AI Competition RSS Feeds
-async def check_rss_feed():
-    feed_url = "https://www.aicrowd.com/challenges.rss"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(feed_url) as response:
-            xml = await response.text()
-    
-    feed = feedparser.parse(xml)
-    
-    competitions = []
-    for entry in feed.entries:
-        competitions.append((entry.title, entry.link))
-    
-    return competitions
-
 
 # ✅ Discord Bot Class
 class MyClient(discord.Client):
     async def on_ready(self):
         print(f'Logged in as {self.user}')
         await initialize_reddit()  # ✅ Initialize Reddit once when bot starts
-
-        # ✅ Send the test message with timestamp
+        
         channel = self.get_channel(CHANNEL_ID)
         if channel:
             await send_startup_message(channel)
-
-        # ✅ Start checking AI competitions
+        
         self.bg_task = self.loop.create_task(self.check_and_send_updates())
 
     async def check_and_send_updates(self):
@@ -139,9 +134,8 @@ class MyClient(discord.Client):
             try:
                 contests = await check_ml_contests()
                 reddit_posts = await check_reddit()
-                rss_competitions = await check_rss_feed()
-
-                all_contests = contests + reddit_posts + rss_competitions
+                twitter_posts = await check_twitter()
+                all_contests = contests + reddit_posts + twitter_posts
 
                 if all_contests:
                     message = "**New AI Competitions Found!**\n\n"
@@ -157,7 +151,6 @@ class MyClient(discord.Client):
                 print(f"Error checking competitions: {e}")
 
             await asyncio.sleep(3600)  # ✅ Wait 1 hour before next check
-
 
 # ✅ Use intents for Discord bot
 intents = discord.Intents.default()
