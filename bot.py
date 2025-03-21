@@ -10,7 +10,7 @@ import hashlib
 from bs4 import BeautifulSoup
 from aiolimiter import AsyncLimiter
 from urllib.parse import urljoin
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Configure logging
 logging.basicConfig(
@@ -61,7 +61,7 @@ def parse_deadline(deadline_text):
 
 # --- Scraping Functions ---
 
-# Twitter API Rate Limiter - Still Conservative
+# Twitter API Rate Limiter - VERY Conservative
 twitter_limiter = AsyncLimiter(1, 60)  # 1 request per 60 seconds
 
 async def check_twitter(bearer_token):
@@ -71,16 +71,17 @@ async def check_twitter(bearer_token):
     try:
         async with aiohttp.ClientSession(headers=headers) as session:
             for account in TWITTER_ACCOUNTS:
-                url = f"https://api.twitter.com/2/tweets/search/recent?query=from:{account}&tweet.fields=text,created_at,public_metrics&max_results=5"  # Reduced max_results
+                url = f"https://api.twitter.com/2/tweets/search/recent?query=from:{account}&tweet.fields=text,created_at,public_metrics&max_results=5"
                 async with twitter_limiter:
                     try:
+                        print(url)  # Debug: Print the URL
                         async with session.get(url) as response:
                             if response.status == 429:
                                 retry_after = response.headers.get('Retry-After')
-                                wait_time = int(retry_after) if retry_after else 60  # Use Retry-After if available
+                                wait_time = int(retry_after) if retry_after else 120
                                 logger.warning(f"Twitter API rate limit exceeded for {account}. Waiting for {wait_time} seconds...")
                                 await asyncio.sleep(wait_time)
-                                continue  # Skip to the next account
+                                continue
 
                             response.raise_for_status()
                             data = await response.json()
@@ -98,7 +99,7 @@ async def check_twitter(bearer_token):
                     except Exception as e:
                         logger.exception(f"Unexpected error with Twitter API: {e}")
 
-                await asyncio.sleep(10)  # Stagger account checks: Wait 10 seconds between accounts
+                await asyncio.sleep(30)  # Stagger account checks
 
     except Exception as e:
         logger.exception(f"Unexpected error in check_twitter: {e}")
@@ -152,7 +153,10 @@ async def check_reddit(reddit_client):
         with open(past_alerts_file, "r") as file:
             past_alerts = json.load(file)
     except (FileNotFoundError, json.JSONDecodeError):
-        past_alerts = []
+        past_alerts = {"reddit_hashes": [], "last_twitter_check": None} # Initialize
+
+    reddit_hashes = past_alerts.get("reddit_hashes", []) #Get the list
+
 
     for sub in REDDIT_SUBREDDITS:
         try:
@@ -164,7 +168,7 @@ async def check_reddit(reddit_client):
                 if (
                     submission.score > score_threshold
                     and submission.upvote_ratio > 0.7
-                    and post_hash not in past_alerts
+                    and post_hash not in reddit_hashes # Use the new list
                 ):
                     text_to_check = submission.title.lower()
                     if submission.is_self:
@@ -186,11 +190,13 @@ async def check_reddit(reddit_client):
                             "source": "Reddit"
                         }
                         new_posts.append(post_data)
-                        past_alerts.append(post_hash)
+                        reddit_hashes.append(post_hash) #Append to the list
         except asyncpraw.exceptions.PRAWException as e:
             logger.error(f"Error fetching posts from r/{sub}: {e}")
         except Exception as e:
             logger.exception(f"Unexpected error in check_reddit (subreddit {sub}): {e}")
+
+    past_alerts["reddit_hashes"] = reddit_hashes # Update
 
     try:
         with open(past_alerts_file, "w") as file:
@@ -227,11 +233,31 @@ class MyClient(discord.Client):
     async def check_and_send_updates(self):
         await self.wait_until_ready()
         channel = self.get_channel(int(os.getenv("DISCORD_CHANNEL_ID")))
+
         while not self.is_closed():
             try:
                 contests = await check_ml_contests()
                 reddit_posts = await check_reddit(self.reddit_client)
-                twitter_posts = await check_twitter(os.getenv("TWITTER_BEARER_TOKEN"))
+
+                # --- Twitter Check (Once Daily) ---
+                past_alerts_file = "past_alerts.json"
+                try:
+                    with open(past_alerts_file, "r") as file:
+                        past_alerts = json.load(file)
+                except (FileNotFoundError, json.JSONDecodeError):
+                    past_alerts = {"reddit_hashes": [], "last_twitter_check": None}
+
+                last_twitter_check = past_alerts.get("last_twitter_check")
+
+                if last_twitter_check is None or (datetime.utcnow() - datetime.fromisoformat(last_twitter_check)) >= timedelta(days=1):
+                    twitter_posts = await check_twitter(os.getenv("TWITTER_BEARER_TOKEN"))
+                    past_alerts["last_twitter_check"] = datetime.utcnow().isoformat() # Store as string
+
+                    with open(past_alerts_file, "w") as file: # Save immediately after twitter check
+                         json.dump(past_alerts, file)
+                else:
+                    twitter_posts = [] # Don't check twitter
+                # ----------------------------------
                 all_contests = contests + reddit_posts + twitter_posts
 
                 if all_contests:
@@ -240,7 +266,7 @@ class MyClient(discord.Client):
             except Exception as e:
                 logger.exception(f"Error in check_and_send_updates: {e}")
 
-            await asyncio.sleep(3600) #Check every hour
+            await asyncio.sleep(3600*6) # Check every 6 hours (for Reddit and MLContest)
 
     async def send_discord_notification(self, channel, contests):
         for contest in contests:
@@ -277,6 +303,6 @@ class MyClient(discord.Client):
 
 # --- Main ---
 intents = discord.Intents.default()
-intents.message_content = True  # Enable if needed
+intents.message_content = True
 client = MyClient(intents=intents)
 client.run(os.getenv("DISCORD_TOKEN"))
