@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 # --- Configuration ---
-TWITTER_ACCOUNTS = ["AIcrowd", "Kaggle", "DrivenDataOrg", "MLcontests"]
+TWITTER_ACCOUNTS = ["aicrowdHQ", "runwayml", "SunoMusic"]
 TWITTER_KEYWORDS = ["AI competition", "machine learning challenge", "hackathon", "prize", "submission", "AI contest"]
 REDDIT_SUBREDDITS = ["AICompetitions", "AIArt", "ArtificialInteligence", "aivideo", "ChatGPT", "aipromptprogramming", "SunoAI", "singularity", "StableDiffusion", "weirddalle", "MidJourney", "Artificial", "OpenAI", "runwayml"]
 REDDIT_KEYWORDS = [
