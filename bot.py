@@ -6,7 +6,7 @@ import discord
 import json
 import logging
 import re
-import hashlib  # Import hashlib here
+import hashlib
 from bs4 import BeautifulSoup
 from aiolimiter import AsyncLimiter
 from urllib.parse import urljoin
@@ -21,8 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 # --- Configuration ---
-# Get values directly from environment variables set in Railway
-TWITTER_ACCOUNTS = ["AIcrowd", "Kaggle", "DrivenDataOrg", "MLcontests"] # Keep as list in the code
+TWITTER_ACCOUNTS = ["AIcrowd", "Kaggle", "DrivenDataOrg", "MLcontests"]
 TWITTER_KEYWORDS = ["AI competition", "machine learning challenge", "hackathon", "prize", "submission", "AI contest"]
 REDDIT_SUBREDDITS = ["AICompetitions", "AIArt", "ArtificialInteligence", "aivideo", "ChatGPT", "aipromptprogramming", "SunoAI", "singularity", "StableDiffusion", "weirddalle", "MidJourney", "Artificial", "OpenAI", "runwayml"]
 REDDIT_KEYWORDS = [
@@ -52,9 +51,6 @@ def generate_post_hash(title, text):
     return hashlib.sha256((title + text).encode()).hexdigest()
 
 def parse_deadline(deadline_text):
-    """
-    Parses a deadline string. Placeholder: Implement based on formats.
-    """
     match = re.search(r"(\d{1,2}/\d{1,2}/\d{4})", deadline_text)
     if match:
         try:
@@ -65,8 +61,8 @@ def parse_deadline(deadline_text):
 
 # --- Scraping Functions ---
 
-# Twitter API Rate Limiter - VERY CONSERVATIVE
-twitter_limiter = AsyncLimiter(1, 60)  # Max 1 request per 60 seconds
+# Twitter API Rate Limiter - Still Conservative
+twitter_limiter = AsyncLimiter(1, 60)  # 1 request per 60 seconds
 
 async def check_twitter(bearer_token):
     headers = {"Authorization": f"Bearer {bearer_token}"}
@@ -75,16 +71,18 @@ async def check_twitter(bearer_token):
     try:
         async with aiohttp.ClientSession(headers=headers) as session:
             for account in TWITTER_ACCOUNTS:
-                url = f"https://api.twitter.com/2/tweets/search/recent?query=from:{account}&tweet.fields=text,created_at,public_metrics&max_results=10"
-                async with twitter_limiter:  # Rate limiting
+                url = f"https://api.twitter.com/2/tweets/search/recent?query=from:{account}&tweet.fields=text,created_at,public_metrics&max_results=5"  # Reduced max_results
+                async with twitter_limiter:
                     try:
                         async with session.get(url) as response:
                             if response.status == 429:
-                                logger.warning(f"Twitter API rate limit exceeded for {account}. Waiting...")
-                                await asyncio.sleep(60)  # Wait before retrying
-                                continue # Skip to the next account
+                                retry_after = response.headers.get('Retry-After')
+                                wait_time = int(retry_after) if retry_after else 60  # Use Retry-After if available
+                                logger.warning(f"Twitter API rate limit exceeded for {account}. Waiting for {wait_time} seconds...")
+                                await asyncio.sleep(wait_time)
+                                continue  # Skip to the next account
 
-                            response.raise_for_status() #Will raise for other errors
+                            response.raise_for_status()
                             data = await response.json()
                             for tweet in data.get("data", []):
                                 if any(keyword.lower() in tweet["text"].lower() for keyword in TWITTER_KEYWORDS):
@@ -97,8 +95,10 @@ async def check_twitter(bearer_token):
                         logger.error(f"Error fetching tweets from {account}: {e}")
                     except json.JSONDecodeError as e:
                         logger.error(f"Error decoding JSON from Twitter API: {e}")
-                    except Exception as e:  # Catch-all for unexpected errors
+                    except Exception as e:
                         logger.exception(f"Unexpected error with Twitter API: {e}")
+
+                await asyncio.sleep(10)  # Stagger account checks: Wait 10 seconds between accounts
 
     except Exception as e:
         logger.exception(f"Unexpected error in check_twitter: {e}")
@@ -134,7 +134,7 @@ async def check_ml_contests():
                         "deadline": deadline,
                         "source": "MLContests"
                     })
-                    await asyncio.sleep(1) # Rate Limiting - Increased delay
+                    await asyncio.sleep(1)
     except aiohttp.ClientError as e:
         logger.error(f"Error fetching from MLContests: {e}")
     except Exception as e:
@@ -177,7 +177,6 @@ async def check_reddit(reddit_client):
                         if submission.url.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.mp4', '.webm', '.mov')):
                             logger.info(f"Skipping image/video post: {submission.url}")
                             continue
-
                         post_data = {
                             "title": submission.title,
                             "url": f"https://www.reddit.com{submission.permalink}",
@@ -241,7 +240,7 @@ class MyClient(discord.Client):
             except Exception as e:
                 logger.exception(f"Error in check_and_send_updates: {e}")
 
-            await asyncio.sleep(3600)
+            await asyncio.sleep(3600) #Check every hour
 
     async def send_discord_notification(self, channel, contests):
         for contest in contests:
