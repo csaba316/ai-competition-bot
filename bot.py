@@ -8,7 +8,7 @@ import logging
 import re
 import hashlib
 from bs4 import BeautifulSoup
-from aiolimiter import AsyncLimiter
+# from aiolimiter import AsyncLimiter  # No longer needed
 from urllib.parse import urljoin
 from datetime import datetime, timedelta
 
@@ -21,8 +21,8 @@ logger = logging.getLogger(__name__)
 
 
 # --- Configuration ---
-TWITTER_ACCOUNTS = ["aicrowdHQ", "runwayml", "SunoMusic"]
-TWITTER_KEYWORDS = ["AI competition", "machine learning challenge", "hackathon", "prize", "submission", "AI contest"]
+# TWITTER_ACCOUNTS = ["aicrowdHQ", "runwayml", "SunoMusic"]  # Commented out
+# TWITTER_KEYWORDS = ["AI competition", "machine learning challenge", "hackathon", "prize", "submission", "AI contest"] # Commented out
 REDDIT_SUBREDDITS = ["AICompetitions", "AIArt", "ArtificialInteligence", "aivideo", "ChatGPT", "aipromptprogramming", "SunoAI", "singularity", "StableDiffusion", "weirddalle", "MidJourney", "Artificial", "OpenAI", "runwayml"]
 REDDIT_KEYWORDS = [
     "AI art contest", "generative art competition", "AI challenge",
@@ -41,7 +41,7 @@ REDDIT_SCORE_THRESHOLDS = {
     "ArtificialInteligence": 100,
     "ChatGPT": 100,
     "StableDiffusion": 75,
-    "MidJourney": 75,
+     "MidJourney": 75,
     "DEFAULT": 50,
 }
 
@@ -61,57 +61,11 @@ def parse_deadline(deadline_text):
 
 # --- Scraping Functions ---
 
-# Twitter API Rate Limiter - VERY Conservative (but still might hit limits)
-twitter_limiter = AsyncLimiter(1, 3600)  # 1 request per hour (VERY SLOW)
+# Twitter API Rate Limiter - VERY Conservative (but accounts for 429s)
+# twitter_limiter = AsyncLimiter(1, 86400)  # No longer needed
 
-async def check_twitter(bearer_token):
-    headers = {"Authorization": f"Bearer {bearer_token}"}
-    tweets = []
-    base_wait_time = 60  # Initial wait time in seconds
-    max_wait_time = 3600  # Maximum wait time (1 hour)
-    wait_time = base_wait_time
-
-    try:
-        async with aiohttp.ClientSession(headers=headers) as session:
-            for account in TWITTER_ACCOUNTS:
-                url = f"https://api.twitter.com/2/tweets/search/recent?query=from:{account}&tweet.fields=text,created_at,public_metrics&max_results=1"  # Reduced max_results
-                async with twitter_limiter:
-                    try:
-                        print(url)  # Debug: Print the URL
-                        async with session.get(url) as response:
-                            if response.status == 429:
-                                retry_after = response.headers.get('Retry-After')
-                                if retry_after:
-                                    wait_time = int(retry_after)
-                                else:
-                                     wait_time = min(wait_time * 2, max_wait_time) # Exponential backoff
-                                logger.warning(f"Twitter API rate limit exceeded for {account}. Waiting for {wait_time} seconds...")
-                                await asyncio.sleep(wait_time)
-                                continue  #Skip and retry later
-
-                            response.raise_for_status()
-                            data = await response.json()
-                            for tweet in data.get("data", []):
-                                if any(keyword.lower() in tweet["text"].lower() for keyword in TWITTER_KEYWORDS):
-                                    tweets.append({
-                                        "title": tweet["text"],
-                                        "url": f"https://twitter.com/{account}/status/{tweet['id']}",
-                                        "source": "Twitter"
-                                    })
-                            wait_time = base_wait_time # Reset wait time after success
-                    except aiohttp.ClientError as e:
-                        logger.error(f"Error fetching tweets from {account}: {e}")
-                    except json.JSONDecodeError as e:
-                        logger.error(f"Error decoding JSON from Twitter API: {e}")
-                    except Exception as e:
-                        logger.exception(f"Unexpected error with Twitter API: {e}")
-
-                await asyncio.sleep(3600)  # Stagger account checks: Wait 1 hour between accounts
-
-    except Exception as e:
-        logger.exception(f"Unexpected error in check_twitter: {e}")
-    return tweets
-
+# async def check_twitter(bearer_token): # Commented out
+# ... (rest of the check_twitter function) ...
 
 
 async def check_ml_contests():
@@ -123,26 +77,26 @@ async def check_ml_contests():
                 response.raise_for_status()
                 html = await response.text()
 
-        soup = BeautifulSoup(html, 'lxml')
+            soup = BeautifulSoup(html, 'lxml')
 
-        for contest in soup.select("div.contest-item"):
-            title_element = contest.select_one("h2 a")
-            if title_element:
-                title = title_element.text.strip()
-                link = urljoin(url, title_element['href'])
-                description_element = contest.select_one("div.contest-description") #Hypothetical
-                description = description_element.text.strip() if description_element else "No description."
-                deadline_element = contest.select_one("span.contest-deadline")  #Hypothetical
-                deadline = parse_deadline(deadline_element.text.strip()) if deadline_element else None
+            for contest in soup.select("div.contest-item"):
+                title_element = contest.select_one("h2 a")
+                if title_element:
+                    title = title_element.text.strip()
+                    link = urljoin(url, title_element['href'])
+                    description_element = contest.select_one("div.contest-description")
+                    description = description_element.text.strip() if description_element else "No description."
+                    deadline_element = contest.select_one("span.contest-deadline")
+                    deadline = parse_deadline(deadline_element.text.strip()) if deadline_element else None
 
-                contests.append({
-                    "title": title,
-                    "link": link,
-                    "description": description,
-                    "deadline": deadline,
-                    "source": "MLContests"
-                })
-                await asyncio.sleep(1)
+                    contests.append({
+                        "title": title,
+                        "link": link,
+                        "description": description,
+                        "deadline": deadline,
+                        "source": "MLContests"
+                    })
+                    await asyncio.sleep(1)
     except aiohttp.ClientError as e:
         logger.error(f"Error fetching from MLContests: {e}")
     except Exception as e:
@@ -160,7 +114,7 @@ async def check_reddit(reddit_client):
         with open(past_alerts_file, "r") as file:
             past_alerts = json.load(file)
     except (FileNotFoundError, json.JSONDecodeError):
-        past_alerts = {"reddit_hashes": [], "last_twitter_check": None}
+        past_alerts = {"reddit_hashes": [], "last_twitter_check": None} # Keep for potential future use
 
     reddit_hashes = past_alerts.get("reddit_hashes", [])
 
@@ -198,12 +152,12 @@ async def check_reddit(reddit_client):
                         }
                         new_posts.append(post_data)
                         reddit_hashes.append(post_hash)
-        except asyncpraw.exceptions.PRAWException as e:
-            logger.error(f"Error fetching posts from r/{sub}: {e}")
-        except Exception as e:
-            logger.exception(f"Unexpected error in check_reddit (subreddit {sub}): {e}")
+                except asyncpraw.exceptions.PRAWException as e:
+                    logger.error(f"Error fetching posts from r/{sub}: {e}")
+                except Exception as e:
+                    logger.exception(f"Unexpected error in check_reddit (subreddit {sub}): {e}")
 
-    past_alerts["reddit_hashes"] = reddit_hashes
+    past_alerts["reddit_hashes"] = reddit_hashes  # Correctly update the dictionary
 
     try:
         with open(past_alerts_file, "w") as file:
@@ -216,12 +170,12 @@ async def check_reddit(reddit_client):
 # --- Discord Bot ---
 
 async def initialize_reddit():
-    reddit = asyncpraw.Reddit(
-        client_id=os.getenv("REDDIT_CLIENT_ID"),
-        client_secret=os.getenv("REDDIT_CLIENT_SECRET"),
-        user_agent=os.getenv("REDDIT_USER_AGENT"),
-    )
-    return reddit
+     reddit = asyncpraw.Reddit(
+         client_id=os.getenv("REDDIT_CLIENT_ID"),
+         client_secret=os.getenv("REDDIT_CLIENT_SECRET"),
+         user_agent=os.getenv("REDDIT_USER_AGENT"),
+     )
+     return reddit
 
 async def send_startup_message(channel):
     now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -246,24 +200,25 @@ class MyClient(discord.Client):
                 contests = await check_ml_contests()
                 reddit_posts = await check_reddit(self.reddit_client)
 
-                # --- Twitter Check (Once Daily) ---
-                past_alerts_file = "past_alerts.json"
-                try:
-                    with open(past_alerts_file, "r") as file:
-                        past_alerts = json.load(file)
-                except (FileNotFoundError, json.JSONDecodeError):
-                    past_alerts = {"reddit_hashes": [], "last_twitter_check": None}
+                # --- Twitter Check (REMOVED) ---
+                # past_alerts_file = "past_alerts.json"
+                # try:
+                #     with open(past_alerts_file, "r") as file:
+                #         past_alerts = json.load(file)
+                # except (FileNotFoundError, json.JSONDecodeError):
+                #     past_alerts = {"reddit_hashes": [], "last_twitter_check": None}
 
-                last_twitter_check = past_alerts.get("last_twitter_check")
+                # last_twitter_check = past_alerts.get("last_twitter_check")
 
-                if last_twitter_check is None or (datetime.utcnow() - datetime.fromisoformat(last_twitter_check)) >= timedelta(days=1):
-                    twitter_posts = await check_twitter(os.getenv("TWITTER_BEARER_TOKEN"))
-                    past_alerts["last_twitter_check"] = datetime.utcnow().isoformat()
+                # if last_twitter_check is None or (datetime.utcnow() - datetime.fromisoformat(last_twitter_check)) >= timedelta(days=1):
+                #     twitter_posts = await check_twitter(os.getenv("TWITTER_BEARER_TOKEN"))
+                #     past_alerts["last_twitter_check"] = datetime.utcnow().isoformat()
 
-                    with open(past_alerts_file, "w") as file:
-                        json.dump(past_alerts, file)
-                else:
-                    twitter_posts = []
+                #     with open(past_alerts_file, "w") as file:
+                #          json.dump(past_alerts, file)
+                # else:
+                #     twitter_posts = []
+                twitter_posts = [] # Ensure it is defined
                 # ----------------------------------
                 all_contests = contests + reddit_posts + twitter_posts
 
@@ -273,7 +228,7 @@ class MyClient(discord.Client):
             except Exception as e:
                 logger.exception(f"Error in check_and_send_updates: {e}")
 
-            await asyncio.sleep(3600*6) # Check every 6 hours (for Reddit and MLContest)
+            await asyncio.sleep(3600*6)
 
     async def send_discord_notification(self, channel, contests):
         for contest in contests:
@@ -284,12 +239,12 @@ class MyClient(discord.Client):
                     color=discord.Color.orange(),
                     description=f"From r/{contest['subreddit']} (Score: {contest['score']}, Comments: {contest['comments']})",
                 )
-            elif contest['source'] == "Twitter":
-                embed = discord.Embed(
-                    title=contest["title"],
-                    url=contest["url"],
-                    color=discord.Color.blue()
-                )
+            # elif contest['source'] == "Twitter":  # Removed
+            #     embed = discord.Embed(
+            #         title=contest["title"],
+            #         url=contest["url"],
+            #         color=discord.Color.blue()
+            #     )
             elif contest['source'] == "MLContests":
                 embed = discord.Embed(
                     title=contest["title"],
@@ -301,7 +256,7 @@ class MyClient(discord.Client):
                 if "deadline" in contest:
                     embed.add_field(name="Deadline", value=str(contest["deadline"]))
             else:
-                embed = discord.Embed( # Fallback
+                embed = discord.Embed( # Fallback - should not happen now
                     title = contest['title'],
                     url = contest['url']
                 )
