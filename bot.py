@@ -5,7 +5,8 @@ import asyncio
 import discord
 import json
 import logging
-import re  # For regex
+import re
+import hashlib  # Import hashlib here
 from bs4 import BeautifulSoup
 from aiolimiter import AsyncLimiter
 from urllib.parse import urljoin
@@ -64,8 +65,8 @@ def parse_deadline(deadline_text):
 
 # --- Scraping Functions ---
 
-# Twitter API Rate Limiter (Adjust based on API limits!)
-twitter_limiter = AsyncLimiter(1, 1)
+# Twitter API Rate Limiter - VERY CONSERVATIVE
+twitter_limiter = AsyncLimiter(1, 60)  # Max 1 request per 60 seconds
 
 async def check_twitter(bearer_token):
     headers = {"Authorization": f"Bearer {bearer_token}"}
@@ -78,7 +79,12 @@ async def check_twitter(bearer_token):
                 async with twitter_limiter:  # Rate limiting
                     try:
                         async with session.get(url) as response:
-                            response.raise_for_status()
+                            if response.status == 429:
+                                logger.warning(f"Twitter API rate limit exceeded for {account}. Waiting...")
+                                await asyncio.sleep(60)  # Wait before retrying
+                                continue # Skip to the next account
+
+                            response.raise_for_status() #Will raise for other errors
                             data = await response.json()
                             for tweet in data.get("data", []):
                                 if any(keyword.lower() in tweet["text"].lower() for keyword in TWITTER_KEYWORDS):
@@ -128,7 +134,7 @@ async def check_ml_contests():
                         "deadline": deadline,
                         "source": "MLContests"
                     })
-                    await asyncio.sleep(0.5) # Rate Limiting
+                    await asyncio.sleep(1) # Rate Limiting - Increased delay
     except aiohttp.ClientError as e:
         logger.error(f"Error fetching from MLContests: {e}")
     except Exception as e:
