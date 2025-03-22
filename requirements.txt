@@ -13,8 +13,8 @@ numpy==1.23.5  # Explicitly set a compatible NumPy version
 pip
 spacy==3.5.4 --prefer-binary  # Ensure SpaCy uses prebuilt wheels
 beautifulsoup4
-lxml
 aiolimiter
 aiohttp
+lxml[html_clean]  # Changed line
 newspaper3k
 nltk
