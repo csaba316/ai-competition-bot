@@ -13,6 +13,7 @@ from newspaper import Article
 import nltk
 import random
 import roboto  # Correct: Import the top-level module
+from urllib.robotparser import RobotFileParser
 
 # Set NLTK data path
 nltk.data.path.append("/usr/share/nltk_data")
@@ -110,7 +111,7 @@ _ROBOTS_CACHE = {}
 _ROBOTS_CACHE_TIMEOUT = timedelta(hours=24)
 
 async def fetch_robots_txt(session, url):
-    """Fetches and parses the robots.txt file for a given URL, with caching."""
+    """Fetch and parse the robots.txt file for a given URL with caching."""
     robots_url = urljoin(url, "/robots.txt")
     domain = urlparse(url).netloc
 
@@ -123,9 +124,9 @@ async def fetch_robots_txt(session, url):
         async with session.get(robots_url, headers=HEADERS) as response:
             if response.status == 200:
                 text = await response.text()
-                parser = roboto.Roboto()  # Correct instantiation
-                parser.parse(text)         # Parse the text
-                _ROBOTS_CACHE[domain] = (parser, datetime.utcnow())  # Cache
+                parser = RobotFileParser()
+                parser.parse(text.splitlines())
+                _ROBOTS_CACHE[domain] = (parser, datetime.utcnow())
                 return parser
             else:
                 logger.warning(f"Failed to fetch robots.txt for {url}, status: {response.status}")
@@ -171,7 +172,7 @@ async def scrape_website(session, website_data):
         # DO NOT CALL article.nlp() !!!  This is what triggers the error.
 
     except aiohttp.ClientError as e:
-        logger.error(f"Error fetching from {url}: {e.status}, message='{e.message}', url='{url}'")
+        logger.error(f"Error fetching from {url}: {str(e)}")
     except Exception as e:
         logger.exception(f"Unexpected error scraping {url}: {e}")  # Log the exception
     return contests
