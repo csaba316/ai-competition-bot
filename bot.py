@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from newspaper import Article
 import nltk
 import random
-from roboto.rules import RuleSet
+from roboto import RuleSet  # This is where we LEFT OFF (still wrong usage, but right import location)
 
 # Configure logging
 logging.basicConfig(
@@ -106,24 +106,24 @@ async def fetch_robots_txt(session, url):
     domain = urlparse(url).netloc
 
     if domain in _ROBOTS_CACHE:
-        ruleset, cached_time = _ROBOTS_CACHE[domain]
+        parser, cached_time = _ROBOTS_CACHE[domain]
         if datetime.utcnow() - cached_time < _ROBOTS_CACHE_TIMEOUT:
-            return ruleset
+            return parser
 
     try:
         async with session.get(robots_url, headers=HEADERS) as response:
             if response.status == 200:
                 text = await response.text()
-                ruleset = RuleSet.from_robots(text)
-                _ROBOTS_CACHE[domain] = (ruleset, datetime.utcnow())  # Cache the ruleset
-                return ruleset
+                parser = RuleSet() # Create the parser
+                parser.parse(text) # Parse from the text
+                _ROBOTS_CACHE[domain] = (parser, datetime.utcnow())
+                return parser
             else:
                 logger.warning(f"Failed to fetch robots.txt for {url}, status: {response.status}")
                 return None
     except Exception as e:
         logger.warning(f"Error fetching robots.txt for {url}: {e}")
         return None
-
 
 async def scrape_website(session, website_data):
     url = website_data["url"]
