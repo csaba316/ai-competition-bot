@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from newspaper import Article
 import nltk
 import random
-from roboto import RuleSet  # This is where we LEFT OFF (still wrong usage, but right import location)
+import roboto
 
 # Configure logging
 logging.basicConfig(
@@ -114,9 +114,9 @@ async def fetch_robots_txt(session, url):
         async with session.get(robots_url, headers=HEADERS) as response:
             if response.status == 200:
                 text = await response.text()
-                parser = RuleSet() # Create the parser
-                parser.parse(text) # Parse from the text
-                _ROBOTS_CACHE[domain] = (parser, datetime.utcnow())
+                parser = roboto.Roboto()  # Create the parser instance
+                parser.parse(text)         # Parse the text
+                _ROBOTS_CACHE[domain] = (parser, datetime.utcnow())  # Cache
                 return parser
             else:
                 logger.warning(f"Failed to fetch robots.txt for {url}, status: {response.status}")
@@ -133,10 +133,9 @@ async def scrape_website(session, website_data):
     try:
         # --- Respect robots.txt ---
         robots_ruleset = await fetch_robots_txt(session, url)
-        if robots_ruleset and not robots_ruleset.allowed(url, "*"):  # Use "*" as a generic bot name
+        if robots_ruleset and not robots_ruleset.can_fetch("*", url):  # Use can_fetch
             logger.warning(f"Skipping {url} due to robots.txt disallow")
-            return []  # Return empty list
-
+            return []
         # --- Set User-Agent and Headers ---
         headers = HEADERS.copy()  # Copy the base headers
         headers["User-Agent"] = random.choice(USER_AGENTS)  # Randomly choose a User-Agent
