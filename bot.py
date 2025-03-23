@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from newspaper import Article
 import nltk
 import random
-from roboto import RuleSet  # For parsing robots.txt
+from roboto.rules import RuleSet
 
 # Configure logging
 logging.basicConfig(
