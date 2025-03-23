@@ -63,12 +63,13 @@ REDDIT_SCORE_THRESHOLDS = {
     "MidJourney": 75,
     "DEFAULT": 50,
 }
+# Advanced search query for targeted posts.
+ADVANCED_SEARCH_QUERY = '"AI contest" OR "generative AI competition"'
 
 # Build compiled regex patterns for each keyword (case-insensitive)
 REDDIT_PATTERNS = [re.compile(r'\b' + re.escape(keyword.lower()) + r'\b') for keyword in REDDIT_KEYWORDS]
 
 # --- Website Scraping (Commented Out) ---
-# The following functions are not used right now.
 """
 WEBSITES = [
     {"url": "https://mlcontests.com/", "source": "MLContests"},
@@ -94,9 +95,6 @@ WEBSITES = [
     {"url": "https://melies.co/blog", "source": "MeliesBlog"},
     {"url": "https://aifilmfest.io/", "source": "AIFilmFestIO"},
 ]
-
-# Example website scraping functions would be defined here.
-# They have been commented out because we are focusing on refining Reddit collection.
 """
 
 # --- Utility Functions ---
@@ -125,7 +123,14 @@ async def check_reddit(reddit_client):
     for sub in REDDIT_SUBREDDITS:
         try:
             subreddit = await reddit_client.subreddit(sub)
-            async for submission in subreddit.hot(limit=10):
+            # Use advanced Reddit search with precise phrases
+            logger.info(f"Searching r/{sub} using advanced query: {ADVANCED_SEARCH_QUERY}")
+            async for submission in subreddit.search(
+                ADVANCED_SEARCH_QUERY,
+                sort="new",
+                time_filter="week",
+                limit=10
+            ):
                 post_hash = generate_post_hash(submission.title, submission.selftext)
                 score_threshold = REDDIT_SCORE_THRESHOLDS.get(sub, REDDIT_SCORE_THRESHOLDS["DEFAULT"])
 
@@ -144,8 +149,6 @@ async def check_reddit(reddit_client):
 
                     # Use regex patterns for refined keyword matching
                     if any(pattern.search(text_to_check) for pattern in REDDIT_PATTERNS):
-                        # Optionally, you could further refine here by checking for additional clues,
-                        # like deadlines or flair information.
                         post_data = {
                             "title": submission.title,
                             "url": f"https://www.reddit.com{submission.permalink}",
@@ -206,7 +209,7 @@ class MyClient(discord.Client):
         channel = self.get_channel(int(os.getenv("DISCORD_CHANNEL_ID")))
         while not self.is_closed():
             try:
-                logger.info("Checking Reddit...")
+                logger.info("Checking Reddit with advanced search...")
                 reddit_contests = await check_reddit(self.reddit_client)
                 if reddit_contests:
                     await self.send_discord_notification(channel, reddit_contests)
