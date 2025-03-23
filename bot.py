@@ -12,6 +12,9 @@ from urllib.parse import urljoin, urlparse
 from datetime import datetime, timedelta
 from newspaper import Article
 import nltk
+import random  # For random User-Agent selection
+import httpx  # For fetching robots.txt
+from roboto import RuleSet  # For parsing robots.txt
 
 # Configure logging
 logging.basicConfig(
@@ -78,18 +81,63 @@ def is_same_domain(url1, url2):
 
 # --- Scraping Functions ---
 
+# List of User-Agents (add more for better rotation)
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Safari/605.1.15",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0",
+    # Add more User-Agents here...
+]
+
+# Common Headers (add or modify as needed)
+HEADERS = {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.5",
+    "Referer": "https://www.google.com/",  # Often a good idea
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+    "Cache-Control": "max-age=0",
+}
+
+async def fetch_robots_txt(session, url):
+    """Fetches and parses the robots.txt file for a given URL."""
+    robots_url = urljoin(url, "/robots.txt")
+    try:
+        async with session.get(robots_url, headers=HEADERS) as response:
+            if response.status == 200:
+                text = await response.text()
+                return RuleSet.from_robots(text)
+            else:
+                logger.warning(f"Failed to fetch robots.txt for {url}, status: {response.status}")
+                return None  # Treat as no restrictions
+    except Exception as e:
+        logger.warning(f"Error fetching robots.txt for {url}: {e}")
+        return None  # Treat as no restrictions in case of error
+
 async def scrape_website(session, website_data):
     url = website_data["url"]
     source = website_data["source"]
     contests = []
+
     try:
-        async with session.get(url) as response:
+        # --- Respect robots.txt ---
+        robots_ruleset = await fetch_robots_txt(session, url)
+        if robots_ruleset and not robots_ruleset.allowed(url, "*"):  # Use "*" as a generic bot name
+             logger.warning(f"Skipping {url} due to robots.txt disallow")
+             return [] # Return empty list
+
+        # --- Set User-Agent and Headers ---
+        headers = HEADERS.copy()  # Copy the base headers
+        headers["User-Agent"] = random.choice(USER_AGENTS)  # Randomly choose a User-Agent
+
+        async with session.get(url, headers=headers) as response: # Pass headers
             response.raise_for_status()
             html = await response.text()
 
         article = Article(url)
         article.download(input_html=html)
         article.parse()
+
 
         # Keyword Filtering
         if any(keyword in article.text.lower() for keyword in REDDIT_KEYWORDS):
@@ -98,11 +146,11 @@ async def scrape_website(session, website_data):
                 "link": url,
                 "description": article.text[:500] + ("..." if len(article.text) > 500 else ""),
                 "source": source,
-                "deadline": None,  # No reliable date extraction with newspaper3k
+                "deadline": None,
             })
 
     except aiohttp.ClientError as e:
-        logger.error(f"Error fetching from {url}: {e}")
+        logger.error(f"Error fetching from {url}: {e.status}, message='{e.message}', url='{url}'") # More detailed error
     except Exception as e:
         logger.exception(f"Unexpected error scraping {url}: {e}")
     return contests
@@ -110,12 +158,11 @@ async def scrape_website(session, website_data):
 
 async def check_websites():
     all_contests = []
-    checked_urls = set()  # Keep track of URLs we've checked
+    checked_urls = set()
 
-    async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession() as session: #Re-use the same session
         for website_data in WEBSITES:
             url = website_data["url"]
-             #Deduplication Check
             if url in checked_urls:
                 logger.info(f"Skipping duplicate URL: {url}")
                 continue
@@ -124,7 +171,7 @@ async def check_websites():
             try:
                 contests = await scrape_website(session, website_data)
                 all_contests.extend(contests)
-                await asyncio.sleep(1) # Rate Limiting
+                await asyncio.sleep(5)  # Increased delay
             except Exception as e:
                 logger.exception(f"Error checking website {website_data['url']}: {e}")
     return all_contests
@@ -132,6 +179,7 @@ async def check_websites():
 
 
 async def check_reddit(reddit_client):
+   # ... (rest of the check_reddit function remains the same) ...
     if reddit_client is None:
         raise ValueError("Reddit client not initialized.")
 
@@ -193,13 +241,14 @@ async def check_reddit(reddit_client):
     return new_posts
 
 
+
 # --- Discord Bot ---
 
 async def initialize_reddit():
      reddit = asyncpraw.Reddit(
          client_id=os.getenv("REDDIT_CLIENT_ID"),
          client_secret=os.getenv("REDDIT_CLIENT_SECRET"),
-         user_agent=os.getenv("REDDIT_USER_AGENT"),
+         user_agent=os.getenv("REDDIT_USER_AGENT"),  # Use a descriptive User-Agent for Reddit
      )
      return reddit
 
@@ -215,8 +264,8 @@ class MyClient(discord.Client):
         channel = self.get_channel(int(os.getenv("DISCORD_CHANNEL_ID")))
         if channel:
             await send_startup_message(channel)
-        self.bg_task = self.loop.create_task(self.check_websites_daily()) # Dedicated task
-        self.reddit_task = self.loop.create_task(self.check_reddit_periodically()) #Dedicated task
+        self.bg_task = self.loop.create_task(self.check_websites_daily())
+        self.reddit_task = self.loop.create_task(self.check_reddit_periodically())
 
     async def check_websites_daily(self):
         await self.wait_until_ready()
@@ -227,9 +276,6 @@ class MyClient(discord.Client):
             try:
                 with open(last_check_file, "r") as file:
                     last_check_data = json.load(file)
-                    last_check = last_check_data.get("last_check")
-            except (FileNotFoundError, json.JSONDecodeError):
-                last_check = None
 
             if last_check is None or (datetime.utcnow() - datetime.fromisoformat(last_check)) >= timedelta(days=1):
                 logger.info("Performing daily website check...")
