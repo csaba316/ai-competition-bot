@@ -7,11 +7,11 @@ import json
 import logging
 import re
 import hashlib
-from bs4 import BeautifulSoup  # Still useful for some tasks
-from urllib.parse import urljoin
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin, urlparse
 from datetime import datetime, timedelta
-from newspaper import Article  # Import newspaper3k
-import nltk  # Import nltk
+from newspaper import Article
+import nltk
 
 # Configure logging
 logging.basicConfig(
@@ -43,16 +43,38 @@ REDDIT_SCORE_THRESHOLDS = {
     "DEFAULT": 50,
 }
 
-# Simplified WEBSITES list (no selectors needed for newspaper3k)
 WEBSITES = [
     {"url": "https://mlcontests.com/", "source": "MLContests"},
-    {"url": "https://www.kaggle.com/competitions", "source": "Kaggle"}, #Example
-    # Add more websites here
+    {"url": "https://curiousrefuge.com/", "source": "CuriousRefuge"},
+    {"url": "https://curiousrefuge.com/ai-contests", "source": "CuriousRefuge"},
+    {"url": "https://www.projectodyssey.ai/", "source": "ProjectOdyssey"},
+    {"url": "https://runwayml.com/", "source": "RunwayML"},
+    {"url": "https://suno.com/blog", "source": "SunoBlog"},
+    {"url": "https://openai.com", "source": "OpenAI"},
+    {"url": "https://openai.com/news/", "source": "OpenAINews"},
+    {"url": "https://lumalabs.ai/", "source": "LumaLabs"},
+    {"url": "https://klingai.com/activity-zone", "source": "KlingAI"},
+    {"url": "https://deepmind.google/technologies/veo/veo-2/", "source": "DeepmindVeo"},
+    {"url": "https://leonardo.ai/", "source": "LeonardoAI"},
+    {"url": "https://leonardo.ai/news/", "source": "LeonardoAINews"},
+    {"url": "https://worldaifilmfestival.com/en/", "source": "WorldAIFilmFestival"},
+    {"url": "https://aiff.runwayml.com/", "source": "AIFFRunwayML"},
+    {"url": "https://challenges.reply.com/ai-film-festival/home/", "source": "ReplyAIChallenge"},
+    {"url": "https://www.filmawards.ai/", "source": "FilmAwardsAI"},
+    {"url": "https://www.filmawards.ai/Articles/", "source": "FilmAwardsAIArticles"},
+    {"url": "https://filmfreeway.com/festivals", "source": "FilmFreeway"},
+    {"url": "https://melies.co/", "source": "Melies"},
+    {"url": "https://melies.co/blog", "source": "MeliesBlog"},
+    {"url": "https://aifilmfest.io/", "source": "AIFilmFestIO"},
 ]
 
 # --- Utility Functions ---
 def generate_post_hash(title, text):
     return hashlib.sha256((title + text).encode()).hexdigest()
+
+def is_same_domain(url1, url2):
+    """Checks if two URLs belong to the same domain."""
+    return urlparse(url1).netloc == urlparse(url2).netloc
 
 # --- Scraping Functions ---
 
@@ -66,18 +88,17 @@ async def scrape_website(session, website_data):
             html = await response.text()
 
         article = Article(url)
-        article.download(input_html=html)  # Pass the downloaded HTML
+        article.download(input_html=html)
         article.parse()
-        # article.nlp()  # Optional: For keywords, authors, summary, etc.
 
-        # Keyword Filtering (Refine as needed)
+        # Keyword Filtering
         if any(keyword in article.text.lower() for keyword in REDDIT_KEYWORDS):
             contests.append({
                 "title": article.title,
                 "link": url,
-                "description": article.text[:500] + ("..." if len(article.text) > 500 else ""), #Limit length
+                "description": article.text[:500] + ("..." if len(article.text) > 500 else ""),
                 "source": source,
-                "deadline": None,  # newspaper3k's date extraction is unreliable
+                "deadline": None,  # No reliable date extraction with newspaper3k
             })
 
     except aiohttp.ClientError as e:
@@ -89,12 +110,21 @@ async def scrape_website(session, website_data):
 
 async def check_websites():
     all_contests = []
+    checked_urls = set()  # Keep track of URLs we've checked
+
     async with aiohttp.ClientSession() as session:
         for website_data in WEBSITES:
+            url = website_data["url"]
+             #Deduplication Check
+            if url in checked_urls:
+                logger.info(f"Skipping duplicate URL: {url}")
+                continue
+            checked_urls.add(url)
+
             try:
                 contests = await scrape_website(session, website_data)
                 all_contests.extend(contests)
-                await asyncio.sleep(1)  # Be polite
+                await asyncio.sleep(1) # Rate Limiting
             except Exception as e:
                 logger.exception(f"Error checking website {website_data['url']}: {e}")
     return all_contests
@@ -114,7 +144,6 @@ async def check_reddit(reddit_client):
         past_alerts = {"reddit_hashes": []}
 
     reddit_hashes = past_alerts.get("reddit_hashes", [])
-
 
     for sub in REDDIT_SUBREDDITS:
         try:
@@ -186,44 +215,50 @@ class MyClient(discord.Client):
         channel = self.get_channel(int(os.getenv("DISCORD_CHANNEL_ID")))
         if channel:
             await send_startup_message(channel)
-        self.bg_task = self.loop.create_task(self.check_and_send_updates())
+        self.bg_task = self.loop.create_task(self.check_websites_daily()) # Dedicated task
+        self.reddit_task = self.loop.create_task(self.check_reddit_periodically()) #Dedicated task
 
-    async def check_and_send_updates(self):
+    async def check_websites_daily(self):
         await self.wait_until_ready()
         channel = self.get_channel(int(os.getenv("DISCORD_CHANNEL_ID")))
+        last_check_file = "last_website_check.json"
 
         while not self.is_closed():
             try:
-                # --- Website Check (Twice Daily) ---
-                last_check_file = "last_website_check.json"
-                try:
-                    with open(last_check_file, "r") as file:
-                        last_check_data = json.load(file)
-                        last_check = last_check_data.get("last_check")
-                except (FileNotFoundError, json.JSONDecodeError):
-                    last_check = None
+                with open(last_check_file, "r") as file:
+                    last_check_data = json.load(file)
+                    last_check = last_check_data.get("last_check")
+            except (FileNotFoundError, json.JSONDecodeError):
+                last_check = None
 
-                if last_check is None or (datetime.utcnow() - datetime.fromisoformat(last_check)) >= timedelta(hours=12):
-                    website_contests = await check_websites()
+            if last_check is None or (datetime.utcnow() - datetime.fromisoformat(last_check)) >= timedelta(days=1):
+                logger.info("Performing daily website check...")
+                website_contests = await check_websites()
 
-                    with open(last_check_file, "w") as file:
-                        json.dump({"last_check": datetime.utcnow().isoformat()}, file)
-                else:
-                    website_contests = []
+                if website_contests:
+                    await self.send_discord_notification(channel, website_contests)
 
-                # --- Reddit Check ---
-                reddit_posts = await check_reddit(self.reddit_client)
+                with open(last_check_file, "w") as file:
+                    json.dump({"last_check": datetime.utcnow().isoformat()}, file)
+            else:
+                remaining_time = (datetime.fromisoformat(last_check) + timedelta(days=1)) - datetime.utcnow()
+                logger.info(f"Next website check in {remaining_time}")
+            await asyncio.sleep(3600) # Check every hour if it is time
 
-                all_contests = website_contests + reddit_posts
-
-
-                if all_contests:
-                    await self.send_discord_notification(channel, all_contests)
+    async def check_reddit_periodically(self):
+        await self.wait_until_ready()
+        channel = self.get_channel(int(os.getenv("DISCORD_CHANNEL_ID")))
+        while not self.is_closed():
+            try:
+                logger.info("Checking Reddit...")
+                reddit_contests = await check_reddit(self.reddit_client)
+                if reddit_contests:
+                    await self.send_discord_notification(channel, reddit_contests)
 
             except Exception as e:
-                logger.exception(f"Error in check_and_send_updates: {e}")
+                logger.exception(f"Error in check_reddit_periodically: {e}")
 
-            await asyncio.sleep(3600)
+            await asyncio.sleep(3600 * 6)  # Check Reddit every 6 hours
 
     async def send_discord_notification(self, channel, contests):
         for contest in contests:
@@ -234,17 +269,6 @@ class MyClient(discord.Client):
                     color=discord.Color.orange(),
                     description=f"From r/{contest['subreddit']} (Score: {contest['score']}, Comments: {contest['comments']})",
                 )
-            # No more MLContest specific check
-            # elif contest['source'] == "MLContests":
-            #     embed = discord.Embed(
-            #         title=contest["title"],
-            #         url=contest["link"],
-            #         color=discord.Color.green()
-            #     )
-            #     if "description" in contest:
-            #         embed.description = contest["description"]
-            #     if "deadline" in contest:
-            #         embed.add_field(name="Deadline", value=str(contest["deadline"]))
 
             else: #Now uses this for all website checks
                 embed = discord.Embed(
