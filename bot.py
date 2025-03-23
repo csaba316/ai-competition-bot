@@ -12,7 +12,6 @@ from datetime import datetime, timedelta
 from newspaper import Article
 import nltk
 import random
-import roboto  # Correct: Import the top-level module
 from urllib.robotparser import RobotFileParser
 
 # Set NLTK data path
@@ -23,7 +22,7 @@ try:
     nltk.data.find('tokenizers/punkt')
 except LookupError:
     nltk.download('punkt', download_dir='/usr/share/nltk_data')
-    
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -32,7 +31,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # --- Configuration ---
-REDDIT_SUBREDDITS = ["AICompetitions", "AIArt", "ArtificialInteligence", "aivideo", "ChatGPT", "aipromptprogramming", "SunoAI", "singularity", "StableDiffusion", "weirddalle", "MidJourney", "Artificial", "OpenAI", "runwayml"]
+REDDIT_SUBREDDITS = [
+    "AICompetitions", "AIArt", "ArtificialInteligence", "aivideo", "ChatGPT",
+    "aipromptprogramming", "SunoAI", "singularity", "StableDiffusion", "weirddalle",
+    "MidJourney", "Artificial", "OpenAI", "runwayml"
+]
 REDDIT_KEYWORDS = [
     "AI art contest", "generative art competition", "AI challenge",
     "machine learning competition", "hackathon", "art prize", "cash prize",
@@ -97,21 +100,28 @@ USER_AGENTS = [
     # Add more User-Agents here...
 ]
 
-# Common Headers (add or modify as needed)
+# Updated Headers to mimic a real browser
 HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.5",
-    "Referer": "https://www.google.com/",  # Often a good idea
+    "Accept-Encoding": "gzip, deflate, br",
+    "Referer": "https://www.google.com/",
     "Connection": "keep-alive",
     "Upgrade-Insecure-Requests": "1",
     "Cache-Control": "max-age=0",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
 }
 
 _ROBOTS_CACHE = {}
 _ROBOTS_CACHE_TIMEOUT = timedelta(hours=24)
 
 async def fetch_robots_txt(session, url):
-    """Fetch and parse the robots.txt file for a given URL with caching."""
+    """Fetches and parses the robots.txt file for a given URL, with caching.
+    Uses Python's built-in RobotFileParser.
+    """
     robots_url = urljoin(url, "/robots.txt")
     domain = urlparse(url).netloc
 
@@ -146,13 +156,16 @@ async def scrape_website(session, website_data):
         if robots_ruleset and not robots_ruleset.can_fetch("*", url):
             logger.warning(f"Skipping {url} due to robots.txt disallow")
             return []
-            
+
         # --- Set User-Agent and Headers ---
         headers = HEADERS.copy()
         headers["User-Agent"] = random.choice(USER_AGENTS)
 
         async with session.get(url, headers=headers) as response:
-            response.raise_for_status()
+            # Gracefully handle non-200 responses
+            if response.status != 200:
+                logger.warning(f"Non-200 response from {url}: {response.status}")
+                return []
             html = await response.text()
 
         article = Article(url)
@@ -164,25 +177,22 @@ async def scrape_website(session, website_data):
             contests.append({
                 "title": article.title,
                 "link": url,
-                "description": article.summary,  # Summary is available *after* parse()
+                "description": article.summary,
                 "source": source,
                 "deadline": None,
             })
 
-        # DO NOT CALL article.nlp() !!!  This is what triggers the error.
-
     except aiohttp.ClientError as e:
         logger.error(f"Error fetching from {url}: {str(e)}")
     except Exception as e:
-        logger.exception(f"Unexpected error scraping {url}: {e}")  # Log the exception
+        logger.exception(f"Unexpected error scraping {url}: {e}")
     return contests
-
 
 async def check_websites():
     all_contests = []
     checked_urls = set()
 
-    async with aiohttp.ClientSession() as session: #Re-use the same session
+    async with aiohttp.ClientSession() as session:  # Re-use the same session
         for website_data in WEBSITES:
             url = website_data["url"]
             if url in checked_urls:
@@ -198,10 +208,7 @@ async def check_websites():
                 logger.exception(f"Error checking website {website_data['url']}: {e}")
     return all_contests
 
-
-
 async def check_reddit(reddit_client):
-
     if reddit_client is None:
         raise ValueError("Reddit client not initialized.")
 
@@ -262,17 +269,14 @@ async def check_reddit(reddit_client):
         logger.error(f"Error writing to past_alerts.json: {e}")
     return new_posts
 
-
-
 # --- Discord Bot ---
-
 async def initialize_reddit():
-      reddit = asyncpraw.Reddit(
-          client_id=os.getenv("REDDIT_CLIENT_ID"),
-          client_secret=os.getenv("REDDIT_CLIENT_SECRET"),
-          user_agent=os.getenv("REDDIT_USER_AGENT"),  # Use a descriptive User-Agent for Reddit
-      )
-      return reddit
+    reddit = asyncpraw.Reddit(
+        client_id=os.getenv("REDDIT_CLIENT_ID"),
+        client_secret=os.getenv("REDDIT_CLIENT_SECRET"),
+        user_agent=os.getenv("REDDIT_USER_AGENT"),  # Use a descriptive User-Agent for Reddit
+    )
+    return reddit
 
 async def send_startup_message(channel):
     now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -314,7 +318,7 @@ class MyClient(discord.Client):
             else:
                 remaining_time = (datetime.fromisoformat(last_check) + timedelta(days=1)) - datetime.utcnow()
                 logger.info(f"Next website check in {remaining_time}")
-            await asyncio.sleep(3600) # Check every hour if it is time
+            await asyncio.sleep(3600)  # Check every hour if it is time
 
     async def check_reddit_periodically(self):
         await self.wait_until_ready()
@@ -332,7 +336,6 @@ class MyClient(discord.Client):
             finally:
                 await asyncio.sleep(3600 * 6)  # Always sleep, even on error
 
-
     async def send_discord_notification(self, channel, contests):
         for contest in contests:
             if contest['source'] == "Reddit":
@@ -342,12 +345,11 @@ class MyClient(discord.Client):
                     color=discord.Color.orange(),
                     description=f"From r/{contest['subreddit']} (Score: {contest['score']}, Comments: {contest['comments']})",
                 )
-
-            else: #Now uses this for all website checks
+            else:  # Now uses this for all website checks
                 embed = discord.Embed(
-                    title = contest['title'],
-                    url = contest.get('link', contest.get('url')),
-                    color = discord.Color.green()
+                    title=contest['title'],
+                    url=contest.get('link', contest.get('url')),
+                    color=discord.Color.green()
                 )
                 if "description" in contest:
                     embed.description = contest["description"]
