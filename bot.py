@@ -7,13 +7,11 @@ import json
 import logging
 import re
 import hashlib
-from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 from datetime import datetime, timedelta
 from newspaper import Article
 import nltk
-import random  # For random User-Agent selection
-import httpx  # For fetching robots.txt
+import random
 from roboto import RuleSet  # For parsing robots.txt
 
 # Configure logging
@@ -42,7 +40,7 @@ REDDIT_SCORE_THRESHOLDS = {
     "ArtificialInteligence": 100,
     "ChatGPT": 100,
     "StableDiffusion": 75,
-     "MidJourney": 75,
+    "MidJourney": 75,
     "DEFAULT": 50,
 }
 
@@ -99,20 +97,33 @@ HEADERS = {
     "Cache-Control": "max-age=0",
 }
 
+_ROBOTS_CACHE = {}
+_ROBOTS_CACHE_TIMEOUT = timedelta(hours=24)
+
 async def fetch_robots_txt(session, url):
-    """Fetches and parses the robots.txt file for a given URL."""
+    """Fetches and parses the robots.txt file for a given URL, with caching."""
     robots_url = urljoin(url, "/robots.txt")
+    domain = urlparse(url).netloc
+
+    if domain in _ROBOTS_CACHE:
+        ruleset, cached_time = _ROBOTS_CACHE[domain]
+        if datetime.utcnow() - cached_time < _ROBOTS_CACHE_TIMEOUT:
+            return ruleset
+
     try:
         async with session.get(robots_url, headers=HEADERS) as response:
             if response.status == 200:
                 text = await response.text()
-                return RuleSet.from_robots(text)
+                ruleset = RuleSet.from_robots(text)
+                _ROBOTS_CACHE[domain] = (ruleset, datetime.utcnow())  # Cache the ruleset
+                return ruleset
             else:
                 logger.warning(f"Failed to fetch robots.txt for {url}, status: {response.status}")
-                return None  # Treat as no restrictions
+                return None
     except Exception as e:
         logger.warning(f"Error fetching robots.txt for {url}: {e}")
-        return None  # Treat as no restrictions in case of error
+        return None
+
 
 async def scrape_website(session, website_data):
     url = website_data["url"]
@@ -123,8 +134,8 @@ async def scrape_website(session, website_data):
         # --- Respect robots.txt ---
         robots_ruleset = await fetch_robots_txt(session, url)
         if robots_ruleset and not robots_ruleset.allowed(url, "*"):  # Use "*" as a generic bot name
-             logger.warning(f"Skipping {url} due to robots.txt disallow")
-             return [] # Return empty list
+            logger.warning(f"Skipping {url} due to robots.txt disallow")
+            return []  # Return empty list
 
         # --- Set User-Agent and Headers ---
         headers = HEADERS.copy()  # Copy the base headers
@@ -137,23 +148,24 @@ async def scrape_website(session, website_data):
         article = Article(url)
         article.download(input_html=html)
         article.parse()
+        article.nlp()
 
 
-        # Keyword Filtering
-        if any(keyword in article.text.lower() for keyword in REDDIT_KEYWORDS):
+        # Keyword Filtering - using summary
+        if any(keyword in article.summary.lower() for keyword in REDDIT_KEYWORDS):
             contests.append({
                 "title": article.title,
                 "link": url,
-                "description": article.text[:500] + ("..." if len(article.text) > 500 else ""),
+                "description": article.summary, #Using summary
                 "source": source,
-                "deadline": None,
+                "deadline": None,  # Placeholder
             })
 
     except aiohttp.ClientError as e:
         logger.error(f"Error fetching from {url}: {e.status}, message='{e.message}', url='{url}'") # More detailed error
     except Exception as e:
         logger.exception(f"Unexpected error scraping {url}: {e}")
-    return contests
+    return contests #Always return contests
 
 
 async def check_websites():
@@ -179,7 +191,7 @@ async def check_websites():
 
 
 async def check_reddit(reddit_client):
-   # ... (rest of the check_reddit function remains the same) ...
+
     if reddit_client is None:
         raise ValueError("Reddit client not initialized.")
 
@@ -245,12 +257,12 @@ async def check_reddit(reddit_client):
 # --- Discord Bot ---
 
 async def initialize_reddit():
-     reddit = asyncpraw.Reddit(
-         client_id=os.getenv("REDDIT_CLIENT_ID"),
-         client_secret=os.getenv("REDDIT_CLIENT_SECRET"),
-         user_agent=os.getenv("REDDIT_USER_AGENT"),  # Use a descriptive User-Agent for Reddit
-     )
-     return reddit
+      reddit = asyncpraw.Reddit(
+          client_id=os.getenv("REDDIT_CLIENT_ID"),
+          client_secret=os.getenv("REDDIT_CLIENT_SECRET"),
+          user_agent=os.getenv("REDDIT_USER_AGENT"),  # Use a descriptive User-Agent for Reddit
+      )
+      return reddit
 
 async def send_startup_message(channel):
     now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -276,6 +288,9 @@ class MyClient(discord.Client):
             try:
                 with open(last_check_file, "r") as file:
                     last_check_data = json.load(file)
+                    last_check = last_check_data.get("last_check")
+            except (FileNotFoundError, json.JSONDecodeError):
+                last_check = None
 
             if last_check is None or (datetime.utcnow() - datetime.fromisoformat(last_check)) >= timedelta(days=1):
                 logger.info("Performing daily website check...")
@@ -300,11 +315,13 @@ class MyClient(discord.Client):
                 reddit_contests = await check_reddit(self.reddit_client)
                 if reddit_contests:
                     await self.send_discord_notification(channel, reddit_contests)
-
+            except asyncpraw.exceptions.PRAWException as e:  # Handle PRAW exceptions
+                logger.error(f"PRAW exception in check_reddit_periodically: {e}")
             except Exception as e:
-                logger.exception(f"Error in check_reddit_periodically: {e}")
+                logger.exception(f"Unexpected error in check_reddit_periodically: {e}")
+            finally:
+                await asyncio.sleep(3600 * 6)  # Always sleep, even on error
 
-            await asyncio.sleep(3600 * 6)  # Check Reddit every 6 hours
 
     async def send_discord_notification(self, channel, contests):
         for contest in contests:
@@ -324,7 +341,7 @@ class MyClient(discord.Client):
                 )
                 if "description" in contest:
                     embed.description = contest["description"]
-                if "deadline" in contest:
+                if "deadline" in contest:  # Check for deadline
                     embed.add_field(name="Deadline", value=str(contest["deadline"]))
             await channel.send(embed=embed)
 
