@@ -145,7 +145,7 @@ async def scrape_website(session, website_data):
         if robots_ruleset and not robots_ruleset.can_fetch("*", url):
             logger.warning(f"Skipping {url} due to robots.txt disallow")
             return []
-
+            
         # --- Set User-Agent and Headers ---
         headers = HEADERS.copy()
         headers["User-Agent"] = random.choice(USER_AGENTS)
