@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from newspaper import Article
 import nltk
 import random
-from roboto import RobotFileParser
+import roboto  # Correct: Import the top-level module
 
 # Set NLTK data path
 nltk.data.path.append("/usr/share/nltk_data")
@@ -123,7 +123,7 @@ async def fetch_robots_txt(session, url):
         async with session.get(robots_url, headers=HEADERS) as response:
             if response.status == 200:
                 text = await response.text()
-                parser = RobotFileParser()  # Correct
+                parser = roboto.Roboto()  # Correct: Use Roboto, not RobotFileParser
                 parser.parse(text)         # Parse the text
                 _ROBOTS_CACHE[domain] = (parser, datetime.utcnow())  # Cache
                 return parser
