@@ -170,10 +170,9 @@ async def scrape_website(session, website_data):
         headers["User-Agent"] = random.choice(USER_AGENTS)
 
         async with session.get(url, headers=headers) as response:
-            # Gracefully handle non-200 responses
+            # Instead of skipping non-200 responses, log a warning and continue processing.
             if response.status != 200:
                 logger.warning(f"Non-200 response from {url}: {response.status}")
-                return []
             html = await response.text()
 
         article = Article(url)
