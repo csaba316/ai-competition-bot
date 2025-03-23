@@ -14,6 +14,13 @@ import nltk
 import random
 from urllib.robotparser import RobotFileParser
 
+# Attempt to import Brotli. If unavailable, adjust headers accordingly.
+try:
+    import brotli
+    HAS_BROTLI = True
+except ImportError:
+    HAS_BROTLI = False
+
 # Set NLTK data path
 nltk.data.path.append("/usr/share/nltk_data")
 
@@ -100,11 +107,12 @@ USER_AGENTS = [
     # Add more User-Agents here...
 ]
 
-# Updated Headers to mimic a real browser
+# Updated Headers to mimic a real browser.
+# Remove "br" from Accept-Encoding if Brotli is not available.
 HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.5",
-    "Accept-Encoding": "gzip, deflate, br",
+    "Accept-Encoding": "gzip, deflate, br" if HAS_BROTLI else "gzip, deflate",
     "Referer": "https://www.google.com/",
     "Connection": "keep-alive",
     "Upgrade-Insecure-Requests": "1",
