@@ -14,6 +14,12 @@ import nltk
 import random
 import roboto
 
+# Download NLTK data (punkt) if it's not already present
+try:
+    nltk.data.find('tokenizers/punkt')
+except LookupError:
+    nltk.download('punkt')
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
