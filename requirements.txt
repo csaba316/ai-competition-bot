@@ -18,3 +18,4 @@ aiohttp
 lxml[html_clean]  # Changed line
 newspaper3k
 nltk
+roboto
