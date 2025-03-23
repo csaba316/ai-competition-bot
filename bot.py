@@ -142,38 +142,39 @@ async def scrape_website(session, website_data):
     try:
         # --- Respect robots.txt ---
         robots_ruleset = await fetch_robots_txt(session, url)
-        if robots_ruleset and not robots_ruleset.can_fetch("*", url):  # Use can_fetch
+        if robots_ruleset and not robots_ruleset.can_fetch("*", url):
             logger.warning(f"Skipping {url} due to robots.txt disallow")
             return []
-        # --- Set User-Agent and Headers ---
-        headers = HEADERS.copy()  # Copy the base headers
-        headers["User-Agent"] = random.choice(USER_AGENTS)  # Randomly choose a User-Agent
 
-        async with session.get(url, headers=headers) as response: # Pass headers
+        # --- Set User-Agent and Headers ---
+        headers = HEADERS.copy()
+        headers["User-Agent"] = random.choice(USER_AGENTS)
+
+        async with session.get(url, headers=headers) as response:
             response.raise_for_status()
             html = await response.text()
 
         article = Article(url)
         article.download(input_html=html)
         article.parse()
-        article.nlp()
 
-
-        # Keyword Filtering - using summary
+        # Keyword Filtering - using summary *BEFORE* calling .nlp()
         if any(keyword in article.summary.lower() for keyword in REDDIT_KEYWORDS):
             contests.append({
                 "title": article.title,
                 "link": url,
-                "description": article.summary, #Using summary
+                "description": article.summary,  # Summary is available *after* parse()
                 "source": source,
-                "deadline": None,  # Placeholder
+                "deadline": None,
             })
 
+        # DO NOT CALL article.nlp() !!!  This is what triggers the error.
+
     except aiohttp.ClientError as e:
-        logger.error(f"Error fetching from {url}: {e.status}, message='{e.message}', url='{url}'") # More detailed error
+        logger.error(f"Error fetching from {url}: {e.status}, message='{e.message}', url='{url}'")
     except Exception as e:
-        logger.exception(f"Unexpected error scraping {url}: {e}")
-    return contests #Always return contests
+        logger.exception(f"Unexpected error scraping {url}: {e}")  # Log the exception
+    return contests
 
 
 async def check_websites():
