@@ -123,7 +123,7 @@ async def fetch_robots_txt(session, url):
         async with session.get(robots_url, headers=HEADERS) as response:
             if response.status == 200:
                 text = await response.text()
-                parser = roboto.Roboto()  # Correct: Use Roboto, not RobotFileParser
+                parser = roboto.Roboto()  # Correct instantiation
                 parser.parse(text)         # Parse the text
                 _ROBOTS_CACHE[domain] = (parser, datetime.utcnow())  # Cache
                 return parser
