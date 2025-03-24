@@ -44,10 +44,26 @@ REDDIT_SUBREDDITS = [
     "MidJourney", "Artificial", "OpenAI", "runwayml"
 ]
 REDDIT_KEYWORDS = [
-    "AI art contest", "generative art competition", "AI challenge",
-    "machine learning competition", "hackathon", "art prize", "cash prize",
-    "$ prize", "AI art competition", "AI design contest", "submission deadline",
-    "call for entries", "creative AI challenge", "prompt engineering contest"
+    "AI contest",
+    "AI competition",
+    "artificial intelligence contest",
+    "AI art contest",
+    "generative AI contest",
+    "generative AI competition",
+    "machine learning contest",
+    "deep learning contest",
+    "creative AI contest",
+    "AI challenge",
+    "AI hackathon",
+    "machine learning hackathon",
+    "art contest",
+    "digital art competition",
+    "AI design contest",
+    "prompt engineering contest",
+    "innovation challenge",
+    "call for entries",
+    "open call contest",
+    "submission deadline"
 ]
 NEGATIVE_REDDIT_KEYWORDS = [
     "job", "hiring", "salary", "course", "tutorial", "research", "paper",
@@ -128,8 +144,8 @@ async def check_reddit(reddit_client):
             async for submission in subreddit.search(
                 ADVANCED_SEARCH_QUERY,
                 sort="new",
-                time_filter="week",
-                limit=10
+                time_filter="month",
+                limit=20
             ):
                 post_hash = generate_post_hash(submission.title, submission.selftext)
                 score_threshold = REDDIT_SCORE_THRESHOLDS.get(sub, REDDIT_SCORE_THRESHOLDS["DEFAULT"])
@@ -218,7 +234,7 @@ class MyClient(discord.Client):
             except Exception as e:
                 logger.exception(f"Unexpected error in check_reddit_periodically: {e}")
             finally:
-                await asyncio.sleep(3600 * 6)  # Sleep 6 hours
+                await asyncio.sleep(3600 * 24)  # Sleep 6 hours
 
     async def send_discord_notification(self, channel, contests):
         for contest in contests:
